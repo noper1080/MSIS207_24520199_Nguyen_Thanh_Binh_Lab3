@@ -55,9 +55,10 @@ skills    = [{ id: 'sk-1', name: 'React 19 Fiber', tier: 'Core' }]
 
 ### Commit 1: `feat(ex1): implement semantic DeveloperCard and SkillBadge`
 
-> Tasks EX1-T1 to EX1-T5 are implemented and verified one by one, then committed together as Commit 1 (JSX + logic only, no CSS file content).
+> Task granularity: one task per commit (revised after T1-T2: those two steps were too small to verify on their own).
+> EX1-T1 and EX1-T2 are done; EX1-T3 completes the component, mounts it, and closes Commit 1 (JSX + logic only, no CSS file content).
 
-#### EX1-T1: JSDoc contracts
+#### EX1-T1: JSDoc contracts (done)
 - **Goal:** Define the prop contracts of `DeveloperCard` and `SkillBadge` before writing JSX.
 - **Contract:**
   ```js
@@ -87,81 +88,70 @@ skills    = [{ id: 'sk-1', name: 'React 19 Fiber', tier: 'Core' }]
 - **Acceptance criteria:** R3; no `PropTypes`, no `defaultProps`; defaults are ES6 default parameters with the exact values above.
 - **Verification:** `git grep -nE "PropTypes|defaultProps" -- src` returns nothing.
 
-#### EX1-T2: `<SkillBadge />` component
+#### EX1-T2: `<SkillBadge />` component (done)
 - **Goal:** Render one skill as `{name} ({tier})` as a reusable, pure component.
 - **Contract:** `SkillBadge({ name, tier })` → returns `<li>{name} ({tier})</li>` (D2, D3). Caller passes `key={s.id}`.
 - **Files touched:** `src/components/SkillBadge.jsx` (named export `SkillBadge`)
 - **Acceptance criteria:** R2, R7; pure (no state, no effects); no `<div>`.
-- **Verification:** React DevTools Components tab shows one `SkillBadge` per skill; Elements shows `ul > li` with no wrapper element.
+- **Verification:** Static render shows `<ul><li>React 19 Fiber (Core)</li></ul>`; XSS string renders as text. DevTools check moves to EX1-T3.
 
-#### EX1-T3: `<DeveloperCard />` semantic JSX
-- **Goal:** Build the card structure exactly as the reference contract.
+#### EX1-T3: `<DeveloperCard />` JSX, avatar fallback, and mount in `App.jsx` (merged old T3 + T4 + T5)
+- **Goal:** Build the card exactly as the reference contract, give the avatar an initials fallback, and render it on the page.
 - **Structure:**
   ```
-  article.card  [aria-labelledby={headingId}]   headingId = useId()
-  ├─ header.header
-  │   ├─ img (src=avatarUrl, alt=fullName, width=64, height=64)
-  │   └─ hgroup > h2#{headingId}{fullName} + p{role}
-  ├─ dl.metrics
-  │   └─ Object.entries(metrics) → <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
-  └─ ul.skills [aria-label="Engineered Skills"]
-      └─ skills.map(s → <SkillBadge key={s.id} name={s.name} tier={s.tier} />)
+  main
+  ├─ h1 "Lab 3: React 19"                         (D7)
+  └─ section
+      └─ article.card  [aria-labelledby={headingId}]   headingId = useId() (D5)
+          ├─ header.header
+          │   ├─ img.avatar (src=avatarUrl, alt=fullName, width=64, height=64, onError)
+          │   │   or span.avatar[role=img][aria-label=fullName]{initials}  (D6)
+          │   └─ hgroup > h2#{headingId}{fullName} + p{role}
+          ├─ dl.metrics
+          │   └─ Object.entries(metrics) → <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>  (D8)
+          └─ ul.skills [aria-label="Engineered Skills"]  (D4)
+              └─ skills.map(s → <SkillBadge key={s.id} name={s.name} tier={s.tier} />)  (D2)
   ```
-- **Files touched:** `src/components/DeveloperCard.jsx`
-- **Acceptance criteria:** R1, R2, R4, R5, R6, R7; named export `DeveloperCard`; imports only `Fragment`, `useId` (and hooks actually used) from `react`; `<dt>` shows the raw metric key (D8); `import styles from './DeveloperCard.module.css'`; no inline `style={{}}`; no `key={index}`.
-- **Verification:**
-  - `grep -n '<div' src/components/DeveloperCard.jsx` → 0 matches
-  - Chrome DevTools → Accessibility tree: `article` (named "Tran Vinh Khiem") → `header` + `dl` (description list) + `list` "…Skills"
-
-#### EX1-T4: HTTPS avatar with fallback initials
-- **Goal:** Avatar loads over HTTPS with fixed 64×64 box; if loading fails, show the developer's initials in the same box.
 - **Contract:**
   - State: `const [avatarFailed, setAvatarFailed] = useState(false)` (only independent source of truth).
-  - Derived during render (no `useEffect`): `initials` = first letter of the first and last word of `fullName`, uppercased (D6). `'Tran Vinh Khiem'` → `'TK'`; single word `'Khiem'` → `'K'`; empty name → `'?'`.
-  - `<img onError={() => setAvatarFailed(true)} ... />` when not failed; otherwise `<span role="img" aria-label={fullName} className={styles.avatar}>{initials}</span>` (D6). Its 64×64 size comes from T7.
-- **Files touched:** `src/components/DeveloperCard.jsx`
-- **Acceptance criteria:** R10; `avatarUrl` default is `https://`; `width="64" height="64"` on `<img>`; fallback occupies the same 64×64 space (zero CLS); still no `<div>`.
+  - Derived during render (no `useEffect`): `initials` = first letter of the first and last word of `fullName`, uppercased. `'Tran Vinh Khiem'` → `'TK'`; `'Khiem'` → `'K'`; empty → `'?'`.
+  - `DeveloperCard.module.css` is created **empty** so the `styles` import resolves; its rules belong to EX1-T4.
+- **Files touched:** `src/components/DeveloperCard.jsx`, `src/components/DeveloperCard.module.css` (empty), `src/App.jsx`
+- **Acceptance criteria:** R1, R2, R4, R5, R6, R7, R10; named export `DeveloperCard`; imports only `Fragment`, `useId`, `useState` from `react`; no inline `style={{}}`; no `key={index}`; `width="64" height="64"` on `<img>`; App holds no state; exactly one `<h1>`.
 - **Verification:**
-  - `grep -n 'http://' src/components/DeveloperCard.jsx` → 0 matches
-  - Pass `avatarUrl="https://invalid.example/x.jpg"` temporarily (or block the request in DevTools → Network → Block request URL) → initials appear, layout does not shift.
-  - Lighthouse / Performance panel: CLS = 0 for the card.
-
-#### EX1-T5: Mount EX1 in `App.jsx`
-- **Goal:** Render `<DeveloperCard />` with its default props in its own `<section>` inside `<main>`.
-- **Files touched:** `src/App.jsx`
-- **Acceptance criteria:** `<main>` top-level; EX1 in its own `<section>`; exactly one `<h1>` on the page, headings sequential (`h1` → card `h2`) (D7); App holds no state.
-- **Contract:** `<main><h1>Lab 3: React 19</h1><section><DeveloperCard /></section></main>`; the `<section>` has no heading of its own.
-- **Verification:** DevTools → Accessibility tree: `main` → `section`/`region` → `article`; zero console warnings (no key warnings) in StrictMode.
-- **Commit (after T1-T5 verified):** `feat(ex1): implement semantic DeveloperCard and SkillBadge`
+  - `grep -n '<div' src/components/DeveloperCard.jsx src/components/SkillBadge.jsx` → 0 matches
+  - `git grep -n "http://" -- src` → 0 matches
+  - DevTools → Accessibility tree: `main` → `article` "Tran Vinh Khiem" → `header` + description list + `list` "Engineered Skills"
+  - DevTools → Network → Block request URL `images.unsplash.com` → reload → initials `TK` appear in place of the photo
+  - Console: zero warnings (no key warnings) in StrictMode
+- **Commit:** `feat(ex1): implement semantic DeveloperCard and SkillBadge`
 
 ---
 
 ### Commit 2: `style(ex1): add responsive 375px CSS module`
 
-> CSS only. No JSX changes in this commit.
-
-#### EX1-T6: Global reset and design tokens
-- **Goal:** Provide the reset and the `:root` custom properties the card module consumes, replacing Slide 18's inline `#d0f0c0`.
-- **Contract (tokens, names indicative):** `--color-card-bg: #d0f0c0;` plus text, border, accent, spacing and radius tokens actually used by the card. Hex colors appear **only** inside `:root`.
-- **Files touched:** `src/index.css`
-- **Acceptance criteria:** R8; reset `box-sizing: border-box; margin: 0; padding: 0`; text contrast ≥ 4.5:1 against `--color-card-bg`.
-- **Verification:** `git grep -nE "#[0-9a-fA-F]{3,8}" -- src` matches only lines inside `:root` of `src/index.css`; DevTools contrast checker ≥ 4.5.
-
-#### EX1-T7: `DeveloperCard.module.css` (mobile-first, 375px)
-- **Goal:** Scoped styles for the card that look correct at 375px with zero horizontal scroll.
-- **Contract:** classes `.card`, `.header`, `.avatar` (64×64 box for `<img>` and the initials fallback), `.metrics`, `.skills`. All values via `var(--token)`.
-  - `.card`: background `var(--color-card-bg)`, padding, radius, `max-width` with `width: 100%`.
-  - `.header`: Flexbox row, `gap`, avatar fixed 64×64 (`flex-shrink: 0`), text `min-width: 0; overflow-wrap: anywhere`.
-  - `.metrics`: Grid `dt`/`dd` 2 columns, `gap`.
-  - `.skills`: Flexbox `flex-wrap: wrap`, `gap`, `list-style: none`.
-- **Files touched:** `src/components/DeveloperCard.module.css` (+ `src/components/SkillBadge.module.css` only if badge styling needs its own classes)
-- **Acceptance criteria:** R8, R9; no hex colors; `gap` instead of child margins; no inline styles anywhere.
-- **Verification:** DevTools → Device Toolbar → iPhone SE (375px): no horizontal scrollbar, `document.documentElement.scrollWidth <= 375` in the Console; long `role` text wraps.
-- **Commit (after T6-T7 verified):** `style(ex1): add responsive 375px CSS module`
+#### EX1-T4: Global tokens + `DeveloperCard.module.css` at 375px (merged old T6 + T7)
+- **Goal:** Replace Slide 18's inline `#d0f0c0` with `:root` custom properties and scoped card styles that are perfect at 375px. CSS only, no JSX changes.
+- **Contract:**
+  - `src/index.css`: reset (`box-sizing: border-box; margin: 0; padding: 0`); `:root` tokens such as `--color-card-bg: #d0f0c0;` plus the text, border, accent, spacing and radius tokens the card actually uses. Hex colors appear **only** inside `:root`.
+  - `DeveloperCard.module.css` classes, all values via `var(--token)`:
+    - `.card`: background `var(--color-card-bg)`, padding, radius, `max-width` with `width: 100%`.
+    - `.header`: Flexbox row, `gap`; text `min-width: 0; overflow-wrap: anywhere`.
+    - `.avatar`: fixed 64×64 (`flex-shrink: 0`), shared by `<img>` and the initials `<span>` (zero CLS).
+    - `.metrics`: Grid `dt`/`dd` 2 columns, `gap`.
+    - `.skills`: Flexbox `flex-wrap: wrap`, `gap`, `list-style: none`.
+- **Files touched:** `src/index.css`, `src/components/DeveloperCard.module.css`
+- **Acceptance criteria:** R8, R9; `gap` instead of child margins; no inline styles; text contrast ≥ 4.5:1 against `--color-card-bg`.
+- **Verification:**
+  - `git grep -nE "#[0-9a-fA-F]{3,8}" -- src` matches only lines inside `:root` of `src/index.css`
+  - DevTools → Device Toolbar → iPhone SE (375px): no horizontal scrollbar; `document.documentElement.scrollWidth <= 375` in the Console; long `role` text wraps
+  - Block the avatar again → initials box is the same 64×64 size (no layout shift)
+  - DevTools contrast checker ≥ 4.5
+- **Commit:** `style(ex1): add responsive 375px CSS module`
 
 ---
 
-### EX1-T8: Checkpoint 1 verification audit (minute 75, no commit)
+### EX1-T5: Checkpoint 1 verification audit (minute 75, no commit)
 
 ```bash
 # 1. Zero <div> soup inside components (expect empty)
