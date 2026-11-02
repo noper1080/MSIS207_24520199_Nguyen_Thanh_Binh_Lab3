@@ -371,3 +371,176 @@ git log --oneline
 - **D8 – `App.jsx`:** Wraps `<ScientistDirectory />` in its own `<section>`, as for EX1.
 - **D9 – CSS:** EX2 gets a basic `ScientistDirectory.module.css` in a 4th commit `style(ex2): add basic responsive directory styles`. This is a deliberate extra over the slide's 3 commits (rules section 7.4 says to match the stated count), chosen by the developer to make the exercise easier to follow. JSX gets its class names in T1-T3 so the CSS commit contains no JSX.
 - **D10 – Contract quirks kept:** clearing the Min IQ field shows `0`, and the status text reads "Found 1 pioneers" for one result (both follow the slide literally).
+
+---
+
+## EX3: KRAFTON PUBG Vietnam Series (PVS) Live Telemetry
+
+**Source:** In-Class Sprint 3 (35 min, minutes 120-155) + "Exercise 3 Reference Contract: PubgMatchTelemetry.jsx".
+**Goal (slide):** a fault-tolerant live esports radar for Vietnamese PUBG pro squads.
+
+### Requirements (restated from the screenshots)
+
+| # | Requirement |
+|---|---|
+| R1 | Build `<PubgMatchTelemetry />` tracking live PVS stats for Cerberus Esports (CES), The Expendables (TE, PGC World Champions) and Genius Esports (GE). |
+| R2 | 4-state machine: `'IDLE' \| 'LOADING' \| 'SUCCESS' \| 'ERROR'` (single `view` state object `{ status, data, error }`). |
+| R3 | During `LOADING`: a 220px pulsing Blue-Zone Skeleton card (`<section aria-busy="true">`, text "Syncing KRAFTON Radar..."). |
+| R4 | Simulate 35% Erangel/Miramar satellite packet loss. |
+| R5 | Rapid squad switching aborts stale requests cleanly via `AbortController`: the effect cleanup calls `controller.abort()`. |
+| R6 | Safe AbortError guard: `if (err.name === 'AbortError') return;` so switching never flashes a false error banner. |
+| R7 | Zero `window.alert()` (Slide 19 fix): packet-timeout errors render in `<section role="alert">` with a "Reconnect Satellite (Retry)" `<button type="button">`. |
+| R8 | Retry button increments `retryTick`, which re-runs the `useEffect` pipeline (`[squadId, retryTick]`). |
+| R9 | Success view: `<article aria-live="polite">` showing `{name} — Kills: {kills}`. |
+| R10 | Props: `squadId = 'te'` (default). |
+| R11 | Checkpoint 3 (DevTools): Network "Slow 3G" -> 0.00 CLS skeleton loader; rapidly click CES -> TE -> GE -> Network shows `(canceled)` requests. |
+| R12 | Exactly 2 atomic commits (messages below). |
+
+**Dataset (from the slide):**
+```
+{ id: 'ces', name: 'Cerberus Esports', map: 'Erangel', phase: 'Phase 6', alive: 4, kills: 14, wwcdProb: '68%', status: 'In Safe Zone' }
+{ id: 'te',  name: 'The Expendables',  map: 'Miramar', phase: 'Phase 7', alive: 4, kills: 18, wwcdProb: '82%', status: 'Holding High Ground' }
+{ id: 'ge',  name: 'Genius Esports',   map: 'Taego',   phase: 'Phase 5', alive: 3, kills: 9,  wwcdProb: '41%', status: 'Rotating Blue Zone' }
+```
+
+### Analysis: what the slide leaves unclear or contradicts
+
+1. **`(canceled)` in the Network panel needs a real HTTP request.** The contract calls `fetchKraftonPubgTelemetry(squadId, { signal })` but never defines it. A fake function built on `setTimeout` makes no request, so Network never shows `(canceled)` and "Slow 3G" does nothing. See D1.
+2. **IDLE has no render branch.** The effect only runs after the first paint, so the contract paints an empty `<article>` ("— Kills:") for one frame before the skeleton. That is a layout shift, against "0.00 CLS". See D5.
+3. **Skeleton is 220px, success card is one `<h3>`.** Swapping them collapses the box. See D5.
+4. **Heading level:** the contract uses `<h3>`, but the page has `h1` then nothing, and rules section 3 requires sequential headings. See D6.
+5. **Three names for the retry button:** "Reconnect Telemetry" (bullet), "Reconnect Satellite (Retry)" (spec), "Reconnect Satellite" (code). See D7.
+6. **"35% Erangel/Miramar packet loss" is ambiguous:** all squads, or only squads playing on those two maps (CES, TE)? See D2.
+7. **The squad selector exists in the checkpoint ("click CES -> TE -> GE") but has no markup,** and `squadId` is a prop, so the state must be lifted into `App.jsx`. See D3.
+8. **StrictMode runs effects twice in dev,** so the first load shows one `(canceled)` request even before any click. This is expected, not a bug.
+9. **A response can arrive in the same tick as an abort.** The fetch helper must re-check `signal` before resolving so a stale payload never reaches `setView`.
+
+### Prerequisite (not counted in EX3's commits)
+
+#### EX3-T0: Commit this WBS section
+- **Goal:** Record the EX3 spec before any EX3 code (rules section 9).
+- **Files touched:** `TASK_DECOMPOSITION.md`
+- **Commit:** `docs(spec): add EX3 PUBG telemetry WBS`
+
+---
+
+### Commit 1: `feat(ex3): implement PUBG VN 4-state telemetry & AbortController`
+
+#### EX3-T1: Data source, state machine, abortable effect, squad selector
+- **Goal:** Load squad telemetry through a cancelable pipeline, switch squads, and show the success card. LOADING/ERROR visuals come in T2.
+- **Contract:**
+  ```js
+  /**
+   * @typedef {Object} Squad
+   * @property {string} id            'ces' | 'te' | 'ge'
+   * @property {string} name
+   * @property {string} map           'Erangel' | 'Miramar' | 'Taego'
+   * @property {string} phase
+   * @property {number} alive
+   * @property {number} kills
+   * @property {string} wwcdProb      e.g. '68%'
+   * @property {string} status
+   */
+
+  /**
+   * @typedef {Object} TelemetryView
+   * @property {'IDLE'|'LOADING'|'SUCCESS'|'ERROR'} status
+   * @property {Squad|null} data
+   * @property {string|null} error
+   */
+
+  /**
+   * @typedef {Object} PubgMatchTelemetryProps
+   * @property {string} [squadId]     Defaults to 'te'
+   */
+  ```
+  - `fetchKraftonPubgTelemetry(squadId, { signal })`: module-level, not exported (D1). Real `fetch` with `signal`; finds the squad by id; applies the packet-loss rule (D2); re-checks `signal` before resolving/rejecting so an aborted call always rejects with `AbortError`.
+  - `PubgMatchTelemetry({ squadId = 'te' })`: `useState({ status: 'IDLE', data: null, error: null })`; one `useEffect` keyed on `[squadId]` that creates the `AbortController`, sets `LOADING`, chains `.then`/`.catch` (AbortError returns silently), and returns `() => controller.abort()`.
+  - Render in this commit: success `<article aria-live="polite">` with `<h2>{name} — Kills: {kills}</h2>` and a `<dl>` (EX1 pattern) for map, phase, alive, wwcdProb and status (D6, D8). LOADING/ERROR visuals are T2.
+  - `App.jsx`: lifted `squadId` state (initial `'te'`) and a squad picker in a new `<section>`: `<fieldset>` + `<legend>Squad</legend>`, three `type="button"` buttons with `aria-pressed` and visible full names (D3, D4). It imports `App.module.css` and applies its class names now, so the style commit needs no JSX.
+  - `src/App.module.css` created **empty** (rules come in T3).
+  - `PubgMatchTelemetry.module.css` created **empty**, imported as `styles` (same approach as EX1/EX2).
+- **Files touched:** `public/pubg-vn-squads.json` (new, D1), `src/components/PubgMatchTelemetry.jsx` (new), `src/components/PubgMatchTelemetry.module.css` (new, empty), `src/App.module.css` (new, empty), `src/App.jsx`
+- **Acceptance criteria:** R1, R2, R4, R5, R6, R8 (partly, `retryTick` lands in T2), R9, R10; effect returns a cleanup; AbortError never sets `ERROR`; no `window.alert`; no `http://`; no inline `style`; no `key={index}`; no new dependency.
+- **Verification:**
+  - `grep -nE "alert\(|http://|style=|<div" src/components/PubgMatchTelemetry.jsx src/App.jsx` -> no output.
+  - Network panel, throttling "Slow 3G": click CES -> TE -> GE quickly -> earlier requests show `(canceled)`, only the last one completes, and the card ends on Genius Esports.
+  - Force outcomes without touching code: in the Console run `Math.random = () => 0` (loss on Erangel/Miramar) or `Math.random = () => 0.99` (no loss). React DevTools -> Components shows `view.status` becoming `ERROR` / `SUCCESS`; rapid switching never leaves `status: 'ERROR'` caused by an abort.
+  - Dev/StrictMode: first load shows one canceled + one completed request (expected).
+  - Console: zero warnings.
+- **Commit:** `feat(ex3): implement PUBG VN 4-state telemetry & AbortController`
+
+---
+
+### Commit 2: `feat(ex3): add skeleton UI & retry alert`
+
+#### EX3-T2: Skeleton, retry alert and `retryTick`
+- **Goal:** Give LOADING/IDLE and ERROR their UI, and let the user retry without `window.alert`.
+- **Contract:**
+  - `retryTick`: `useState(0)`; added to the effect deps -> `[squadId, retryTick]`.
+  - `IDLE` or `LOADING` -> `<section aria-busy="true" className={styles.skeleton}>Syncing KRAFTON Radar...</section>` (IDLE shares the skeleton, D5).
+  - `ERROR` -> `<section role="alert">` containing `<p>Blue-Zone Link Lost: {view.error}</p>` and `<button type="button">Reconnect Satellite</button>` whose click does `setRetryTick(t => t + 1)` (D7).
+  - Panels get `className={styles.panel}` so one shared box exists for all states (D5).
+- **Files touched:** `src/components/PubgMatchTelemetry.jsx`
+- **Acceptance criteria:** R3 (structure; size/pulse come in T3), R6, R7, R8; `role="alert"`; `type="button"`; no `window.alert`; retry re-runs the effect; stale `ERROR` never shows after an abort.
+- **Verification:**
+  - `Math.random = () => 0` then select CES -> alert appears with the message and the button; Accessibility tree: `alert` with a button.
+  - Click the button -> status goes `ERROR` -> `LOADING` -> `ERROR` again (still lossy) -> run `Math.random = () => 0.99`, click again -> `SUCCESS`.
+  - Rapid CES -> TE -> GE never flashes the alert (AbortError guard).
+  - Keyboard: Tab reaches the retry button, Enter activates it. Focus is not managed after state swaps (same stance as EX2 D6).
+  - `git grep -nE "alert\(" -- src` -> no output.
+- **Commit:** `feat(ex3): add skeleton UI & retry alert`
+
+---
+
+### Commit 3: `style(ex3): add skeleton pulse and responsive 375px layout`
+
+> Extra commit beyond the slide's 2, same pattern as EX1/EX2 (D9). CSS only, no JSX.
+
+#### EX3-T3: Skeleton pulse, shared 220px panel, picker and alert styles
+- **Goal:** Make the skeleton a 220px pulsing Blue-Zone card and keep layout shift at 0.00 across all states, perfect at 375px.
+- **Contract:** all values via `var(--token)`; hex only inside `:root` (new blue-zone tokens, if needed, are added there).
+  - `PubgMatchTelemetry.module.css`: `.panel` (shared by skeleton, alert and success card: `min-height: 220px`, padding, border, radius), `.skeleton` (Blue-Zone color, `@keyframes` opacity pulse), alert and retry-button styles (`.button` look as in EX2), `:focus-visible` outline, text `overflow-wrap: anywhere`.
+  - `src/App.module.css` (created empty in T1): picker `<fieldset>` layout with `flex-wrap` and `gap`; the pressed state must not rely on color alone (for example a border or weight change as well) (D4).
+  - `@media (prefers-reduced-motion: reduce)` stops the pulse (D10).
+- **Files touched:** `src/components/PubgMatchTelemetry.module.css`, `src/App.module.css`, `src/index.css` (only for new `:root` tokens). No JSX file is touched.
+- **Acceptance criteria:** R3 (220px, pulsing), R11 (0.00 CLS); no margin on children (`gap`); contrast >= 4.5:1; no inline styles.
+- **Verification:**
+  - Slow 3G, reload and switch squads -> DevTools Performance "Layout Shifts" track (or Lighthouse CLS) shows 0.00; skeleton, alert and success boxes have the same height.
+  - 375px (iPhone SE): `document.documentElement.scrollWidth <= 375`; picker buttons wrap, no overflow.
+  - Reduced-motion emulation (Rendering tab) -> no animation.
+  - `git grep -nE "#[0-9a-fA-F]{3,8}\b" -- src` -> only lines inside `:root` of `src/index.css`.
+- **Commit:** `style(ex3): add skeleton pulse and responsive 375px layout`
+
+---
+
+### EX3-T4: Checkpoint 3 verification audit (minute 155, no commit)
+
+```bash
+# 1. No window.alert, no insecure URLs, no inline styles / index keys / div soup (expect empty)
+git grep -nE "alert\(|http://|style=|key=\{(i|index)\}|<div" -- src/components/PubgMatchTelemetry.jsx
+git grep -n "http://" -- src
+# 2. Abort wiring is present (expect matches)
+grep -nE "AbortController|\.abort\(\)|AbortError" src/components/PubgMatchTelemetry.jsx
+# 3. Atomic commits match this WBS
+git log --oneline
+```
+- DevTools -> Network "Slow 3G": skeleton appears, CLS 0.00.
+- Rapidly click CES -> TE -> GE: stale requests show `(canceled)`, the final card is Genius Esports, no alert flashes.
+- Force failure (`Math.random = () => 0`), see the alert, click Reconnect Satellite, recover with `Math.random = () => 0.99`.
+- Accessibility tree: `status`/live region on the article, `alert` on the error section.
+- 375px: zero horizontal scroll. Console: zero warnings under StrictMode.
+- Whole-lab sweep: `git grep -n "http://" -- src` empty; `git grep -nE "<div" -- src/components` empty; `git log --oneline` shows the EX1, EX2, EX3 commits.
+
+### Decisions (EX3, agreed with the developer)
+
+- **D1 – Data source:** three squads live in `public/pubg-vn-squads.json`; `fetchKraftonPubgTelemetry` is a module-level, non-exported function in `PubgMatchTelemetry.jsx` doing a real `fetch('/pubg-vn-squads.json', { signal })`, picking the squad by id, then applying packet loss. No artificial delay: "Slow 3G" provides it. New file outside the layout in `project-rules.md`, approved by the developer.
+- **D2 – Packet loss:** squads on Erangel or Miramar (CES, TE) fail with probability 0.35 (`Math.random() < 0.35`), Taego (GE) never fails; the roll happens after the response arrives; error text `Packet timeout: {map} satellite link lost`. Tests force outcomes with `Math.random = () => 0` (loss) or `() => 0.99` (no loss) in the Console.
+- **D3 – Selector location:** `App.jsx` owns `squadId` (initial `'te'`) and renders the picker in a new `<section>` next to the telemetry panel.
+- **D4 – Picker markup/style:** `<fieldset>` + `<legend>Squad</legend>`, three `type="button"` buttons with `aria-pressed` and full names (Cerberus Esports, The Expendables, Genius Esports). Styled by a new `src/App.module.css`, imported in T1 (empty) and filled in T3.
+- **D5 – IDLE and CLS:** IDLE renders the same skeleton as LOADING; skeleton, alert and success card share one `.panel` with `min-height: 220px`. Deliberate addition to the slide's contract to reach 0.00 CLS.
+- **D6 – Heading level:** success card uses `<h2>` (rules: sequential headings), not the contract's `<h3>`.
+- **D7 – Retry label:** `Reconnect Satellite`.
+- **D8 – Extra fields:** a `<dl>` shows map, phase, alive, wwcdProb and status next to `{name} — Kills: {kills}`.
+- **D9 – Commits:** the 2 slide commits plus a 3rd `style(ex3)` commit, so JSX and CSS stay apart (deliberate extra over the slide's count, as in EX2 D9).
+- **D10 – Reduced motion:** the pulse stops under `prefers-reduced-motion: reduce`.
