@@ -25,7 +25,7 @@ const SMART_PEOPLE = [
 ];
 
 /**
- * Searchable, filterable, sortable directory of pioneers.
+ * Searchable, filterable, sortable directory of pioneers with delete and reset.
  * Only the raw inputs live in state; `visible` is derived during render.
  * @param {ScientistDirectoryProps} props
  */
@@ -33,7 +33,7 @@ export function ScientistDirectory({ initialData = SMART_PEOPLE }) {
   const qId = useId();
   const iqId = useId();
   const sortId = useId();
-  const [people] = useState(initialData);
+  const [people, setPeople] = useState(initialData);
   const [query, setQuery] = useState('');
   const [minIq, setMinIq] = useState(160);
   const [sortBy, setSortBy] = useState('iq-desc');
@@ -42,6 +42,14 @@ export function ScientistDirectory({ initialData = SMART_PEOPLE }) {
   const visible = people
     .filter((p) => p.name.toLowerCase().includes(needle) && p.iq >= minIq)
     .toSorted((a, b) => (sortBy === 'iq-desc' ? b.iq - a.iq : a.age - b.age));
+
+  function handleDelete(id) {
+    setPeople((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  function handleReset() {
+    setPeople(initialData);
+  }
 
   return (
     <section className={styles.directory} aria-label="Pioneer Directory">
@@ -76,10 +84,24 @@ export function ScientistDirectory({ initialData = SMART_PEOPLE }) {
           <option value="age-asc">Age (young to old)</option>
         </select>
       </form>
+      <output className={styles.status} role="status" aria-live="polite">
+        Found {visible.length} pioneers
+      </output>
+      <button type="button" className={styles.button} onClick={handleReset}>
+        Reset
+      </button>
       <ul className={styles.list}>
         {visible.map((p) => (
           <li key={p.id} className={styles.item}>
             {p.name} — IQ {p.iq}, age {p.age}
+            <button
+              type="button"
+              className={styles.button}
+              aria-label={`Delete ${p.name}`}
+              onClick={() => handleDelete(p.id)}
+            >
+              Delete
+            </button>
           </li>
         ))}
       </ul>
