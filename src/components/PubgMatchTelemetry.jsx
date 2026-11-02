@@ -60,6 +60,7 @@ export function PubgMatchTelemetry({ squadId = 'te' }) {
   const [view, setView] = useState(
     /** @type {TelemetryView} */ ({ status: 'IDLE', data: null, error: null }),
   );
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -71,10 +72,30 @@ export function PubgMatchTelemetry({ squadId = 'te' }) {
         setView({ status: 'ERROR', data: null, error: err.message });
       });
     return () => controller.abort();
-  }, [squadId]);
+  }, [squadId, retryTick]);
 
-  // IDLE / LOADING / ERROR visuals arrive with the skeleton and retry alert.
-  if (view.status !== 'SUCCESS') return null;
+  if (view.status === 'IDLE' || view.status === 'LOADING') {
+    return (
+      <section className={styles.skeleton} aria-busy="true">
+        Syncing KRAFTON Radar...
+      </section>
+    );
+  }
+
+  if (view.status === 'ERROR') {
+    return (
+      <section className={styles.alert} role="alert">
+        <p>Blue-Zone Link Lost: {view.error}</p>
+        <button
+          type="button"
+          className={styles.button}
+          onClick={() => setRetryTick((t) => t + 1)}
+        >
+          Reconnect Satellite
+        </button>
+      </section>
+    );
+  }
 
   const { data } = view;
   return (
